@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8"/>
+    <title>{% block title %}Welcome!{% endblock %}</title>
+    {% block stylesheets %}{% endblock %}
+    <link rel="icon" type="image/x-icon" href="{{ asset('favicon.ico') }}"/>
+</head>
+<body>
+<div id="curve_chart" style="width: 900px; height: 500px"></div>
+
+Token: <input type="text" id="token"/>
+<input type="button" value="login" id="login_btn"/>
+<input type="button" value="logout" id="logout_btn"/>
+<input type="button" value="get user" id="user_btn"/>
+<div id="log"></div>
+
+Select unit: <select id="units">
+    <option></option>
+</select>
+
+{% block javascripts %}
+    <script type="text/javascript" src="//code.jquery.com/jquery-latest.min.js"></script>
+    <script type="text/javascript" src="//hst-api.wialon.com/wsdk/script/wialon.js"></script>
+
+    <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+    <script type="text/javascript">
+
+        (function () {
+
+            // Print message to log
+            function msg(text) {
+                $("#log").prepend(text + "<br/>");
+            }
+
+            /* */
+            // Login to server using entered username and password
+            function login() {
+                var sess = wialon.core.Session.getInstance(); // get instance of current Session
+                var user = sess.getCurrUser(); // get current User
+                if (user) { // if user exists - you are already logged, print username to log
+                    msg("You are logged as '" + user.getName() + "', click logout button first");
+                    return;
+                }
+
+                // if not logged
+                var token = $("#token").val(); // get token from input
+                if (!token) { // if token is empty - print message to log
+                    msg("Enter token");
+                    return;
+                }
+
+                msg("Trying to login with token '" + token + "'");
+                sess.initSession("https://hst-api.wialon.com"); // initialize Wialon session
+                sess.loginToken(token, "", // trying login
+                    function (code) { // login callback
+                        if (code) msg(wialon.core.Errors.getErrorText(code)); // login failed, print error
+                        else msg("Logged successfully"); // login succeed
+                    }
+                );
+            }
+
+            // Logout
+            function logout() {
+                var user = wialon.core.Session.getInstance().getCurrUser(); // get current user
+                if (!user) {
+                    msg("You are not logged, click 'login' button");
+                    return;
+                }
+                wialon.core.Session.getInstance().logout( // if user exist - logout
+                    function (code) { // logout callback
+                        if (code) msg(wialon.core.Errors.getErrorText(code)); // logout failed, print error
+                        else msg("Logout successfully"); // logout suceed
+                    }
+                );
+            }
+
+            // Get current user and prints its name to log
+            function getUser() {
+                var user = wialon.core.Session.getInstance().getCurrUser(); // get current user
+                // print message
+                if (!user) msg("You are not logged, click 'login' button"); // user not exists
+                else msg("You are logged as '" + user.getName() + "'"); // print current user name
+            }
+
+            // execute when DOM ready
+            $(document).ready(function () {
+                // For more info about how to generate token check
+                // http://sdk.wialon.com/playground/demo/app_auth_token
+                //$("#token").val("5dce19710a5e26ab8b7b8986cb3c49e58C291791B7F0A7AEB8AFBFCEED7DC03BC48FF5F8");
+                $("#token").val("a61c128839b55d813925bc3ef25945c2AB4990C945B23A170F66FFE68CCEEB627106202F");
+                // bind actions to buttons click
+                $("#login_btn").click(login);
+                $("#logout_btn").click(logout);
+                $("#user_btn").click(getUser);
+            });
+
+            function init() { // Execute after login succeed
+                var sess = wialon.core.Session.getInstance(); // get instance of current Session
+                // flags to specify what kind of data should be returned
+                var flags = wialon.item.Item.dataFlag.base | wialon.item.Unit.dataFlag.lastMessage;
+
+                sess.loadLibrary("itemIcon"); // load Icon Library
+                sess.updateDataFlags( // load items to current session
+                    [{type: "type", data: "avl_unit", flags: flags, mode: 0}], // Items specification
+                    function (code) { // updateDataFlags callback
+                        if (code) {
+                            msg(wialon.core.Errors.getErrorText(code));
+                            return;
+                        } // exit if error code
+
+                        // get loaded 'avl_unit's items
+                        var units = sess.getItems("avl_unit");
+                        if (!units || !units.length) {
+                            msg("Units not found");
+                            return;
+                        } // check if units found
+
+                        for (var i = 0; i < units.length; i++) { // construct Select object using found units
+                            var u = units[i]; // current unit in cycle
+                            // append option to select
+                            $("#units").append("<option value='" + u.getId() + "'>" + u.getName() + "</option>");
+                        }
+                        // bind action to select change event
+                        $("#units").change(getSelectedUnitInfo);
+                    }
+                );
+            }
+
+            function getSelectedUnitInfo() { // print information about selected Unit
+
+                var val = $("#units").val(); // get selected unit id
+                if (!val) return; // exit if no unit selected
+
+                var unit = wialon.core.Session.getInstance().getItem(val); // get unit by id
+                if (!unit) {
+                    msg("Unit not found");
+                    return;
+                } // exit if unit not found
+
+                // construct message with unit information
+                var text = "<div>'" + unit.getName() + "' selected. "; // get unit name
+                var icon = unit.getIconUrl(32); // get unit Icon url
+                if (icon) text = "<img class='icon' src='" + icon + "' alt='icon'/>" + text; // add icon to message
+                var pos = unit.getPosition(); // get unit position
+                if (pos) { // check if position data exists
+                    var time = wialon.util.DateTime.formatTime(pos.t);
+                    text += "<b>Last message</b> " + time + "<br/>" + // add last message time
+                        "<b>Position</b> " + pos.x + ", " + pos.y + "<br/>" + // add info about unit position
+                        "<b>Speed</b> " + pos.s; // add info about unit speed
+                    // try to find unit location using coordinates
+                    wialon.util.Gis.getLocations([{lon: pos.x, lat: pos.y}], function (code, address) {
+                        if (code) {
+                            msg(wialon.core.Errors.getErrorText(code));
+                            return;
+                        } // exit if error code
+                        msg(text + "<br/><b>Location of unit</b>: " + address + "</div>"); // print message to log
+                    });
+                } else // position data not exists, print message
+                    msg(text + "<br/><b>Location of unit</b>: Unknown</div>");
+            }
+
+            // execute when DOM ready
+            $(document).ready(function () {
+                wialon.core.Session.getInstance().initSession("https://hst-api.wialon.com"); // init session
+                // For more info about how to generate token check
+                // http://sdk.wialon.com/playground/demo/app_auth_token
+                wialon.core.Session.getInstance().loginToken("a61c128839b55d813925bc3ef25945c2AB4990C945B23A170F66FFE68CCEEB627106202F", "", // try to login
+                    function (code) { // login callback
+                        // if error code - print error message
+                        if (code) {
+                            msg(wialon.core.Errors.getErrorText(code));
+                            return;
+                        }
+                        msg("Logged successfully");
+                        init(); // when login suceed then run init() function
+                    });
+            });
+
+
+            /****
+             *Charts
+             */
+
+
+            google.charts.load('current', {'packages': ['corechart']});
+            google.charts.setOnLoadCallback(drawChart);
+
+            function drawChart() {
+                var largusId = 868307;
+
+                var array = [
+                    ['time', 'speed']
+                ];
+                var data = google.visualization.arrayToDataTable(array);
+
+                var options = {
+                    title: 'Company Performance',
+                    curveType: 'function',
+                    legend: {position: 'bottom'}
+                };
+
+                var chart = new google.visualization.LineChart(document.getElementById('curve_chart'));
+
+                chart.draw(data, options);
+
+                var save_time = null;
+                setInterval(function () {
+                    var unit = wialon.core.Session.getInstance().getItem(largusId);
+                    var pos = unit.getPosition();
+                    var time = wialon.util.DateTime.formatTime(pos.t);
+                    //console.log(unit);
+                    if (save_time == time) {
+                        return;
+                    }
+                    save_time = time;
+                    array.push([time, pos.s]);
+                    var data = google.visualization.arrayToDataTable(array);
+                    var chart = new google.visualization.LineChart(document.getElementById('curve_chart'));
+                    chart.draw(data, options);
+                }, 1000)
+            }
+        })();
+    </script>
+{% endblock %}
+</body>
+</html>
