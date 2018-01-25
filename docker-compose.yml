@@ -1,0 +1,27 @@
+version: "2"
+services:
+  php:
+    image: "dzamyatin/php56-tarantool:latest"
+    # build: .
+    ports:
+      - "8000:8000" # web
+      - "9005:9000" # xdebug
+    links:
+      - tarantool
+    volumes:
+      - ./my_project_name2:/var/www/html
+      - ./conf/etc/php5/cli/conf.d/tarantool.ini:/etc/php5/cli/conf.d/tarantool.ini
+    networks:
+      - mynet
+  tarantool:
+    image: "tarantool/tarantool:latest"
+    volumes:
+      - ./data/var/lib/tarantool:/var/lib/tarantool
+    ports:
+      - "3301:3301"
+    networks:
+      - mynet
+
+networks:
+  mynet:
+    driver: bridge
